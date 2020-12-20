@@ -5,6 +5,9 @@ import { Image, Frame, GIF } from 'imagescript'
 
 import * as config from './config.json';
 
+import * as SimplexNoise from 'simplex-noise';
+import { inspect } from 'util';
+
 type Serializable = string | number | boolean
 
 interface Input {
@@ -47,25 +50,36 @@ function parseBody(req: IncomingMessage): Promise<Input> {
 async function executeImageScript(script: string, inject: { [key: string]: Serializable }): Promise<Output> {
     let result: [Image | GIF | undefined, string | undefined];
     const scriptToExecute = 
-`${script}
-const __typeofImage = typeof(image);
-const __typeofText = typeof(text);
-if(__typeofImage === 'undefined' && __typeofText === 'undefined') {
-    throw new Error('no image or text was defined');
-} else if(__typeofImage !== 'undefined' && __typeofText === 'undefined') {
-    [image, undefined];
-} else if(__typeofImage === 'undefined' && __typeofText !== 'undefined') {
-    [undefined, text];
-} else {
-    [image, text];
-}`
+`(async() => {
+    ${script}
+    const __typeofImage = typeof(image);
+    const __typeofText = typeof(text);
+    if(__typeofImage === 'undefined' && __typeofText === 'undefined') {
+        throw new Error('no image or text was defined');
+    } else if(__typeofImage !== 'undefined' && __typeofText === 'undefined') {
+        return [image, undefined];
+    } else if(__typeofImage === 'undefined' && __typeofText !== 'undefined') {
+        return [undefined, text];
+    } else {
+        return [image, text];
+    }
+})()`
     const start = Date.now();
-    result = runInNewContext(scriptToExecute, {
-        Image,
-        Frame,
-        GIF,
-        ...inject
-    }, { timeout: config.timeout, });
+    try {
+        result = await runInNewContext(scriptToExecute, {
+            Image,
+            Frame,
+            GIF,
+            SimplexNoise,
+            _inspect: inspect,
+            ...inject
+        }, { timeout: config.timeout, });
+    } catch(e) {
+        throw e;
+    }
+
+    if(result[0] instanceof Promise) await result[0];
+    if(!(result[0] instanceof Image) && result[0] !== undefined) throw new Error('`image` is not a valid Image')
 
     let output: Output = { 
         image: undefined, 
@@ -101,13 +115,13 @@ createServer(async (req, res) => {
         wallTime = Date.now() - start;
     } catch(e) {
         res.statusCode = ResponseCodes.BAD_REQUEST;
-        res.write(e.stack);
+        res.write(e.stack.split('\n').slice(0, 5).join('\n'));
         return res.end();
     }
     res.setHeader('x-cpu-time', result.cpuTime as number);
     res.setHeader('x-wall-time', wallTime);
     if(result.text) {
-        res.setHeader('x-text', result.text);
+        res.setHeader('x-text', result.text.split('').map(a => a.charCodeAt(0)).join(' '));
     }
     if(result.format) {
         res.setHeader('x-format', result.format);
@@ -123,3 +137,5 @@ createServer(async (req, res) => {
 }).listen(config.port).on('listening', () => {
     console.log('listening on port ' + config.port)
 });
+
+process.on('unhandledRejection', console.error)
