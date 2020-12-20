@@ -1,4 +1,4 @@
 #! /bin/sh
 tsc
-cd ./dist
+cd dist
 node api
