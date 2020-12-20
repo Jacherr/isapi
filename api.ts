@@ -5,6 +5,12 @@ import { Image, Frame, GIF } from 'imagescript'
 
 import * as config from './config.json';
 
+interface Output {
+    image?: Buffer
+    text?: string
+    cpuTime?: number
+}
+
 enum RequestMethods {
     POST = 'post'
 }
@@ -25,10 +31,10 @@ function parseBody(req: IncomingMessage): Promise<string> {
     });
 }
 
-async function executeImageScript(script: string) {
+async function executeImageScript(script: string): Promise<Output> {
     let result: [Image | GIF | undefined, string | undefined];
     const scriptToExecute = 
-`${script.slice(1, script.length - 1)}
+`${script}
 const __typeofImage = typeof(image);
 const __typeofText = typeof(text);
 if(__typeofImage === 'undefined' && __typeofText === 'undefined') {
@@ -40,47 +46,56 @@ if(__typeofImage === 'undefined' && __typeofText === 'undefined') {
 } else {
     [image, text];
 }`
+    const start = Date.now();
     result = runInNewContext(scriptToExecute, {
         Image,
         Frame,
-        GIF,
-        console
+        GIF
     }, { timeout: config.timeout, });
 
-    let output: [Buffer | undefined, string | undefined] = [undefined, undefined];
+    let output: Output = { 
+        image: undefined, 
+        text: undefined, 
+        cpuTime: Date.now() - start 
+    };
     if(result[0]) {
         const buffer = await result[0].encode();
-        output[0] = buffer;
+        output.image = buffer;
     }
-    output[1] = result[1];
+    output.text = result[1];
 
     return output;
 }
 
 createServer(async (req, res) => {
     const { method, headers } = req;
-    if (method?.toLowerCase() !== RequestMethods.POST) {
-        res.statusCode = ResponseCodes.METHOD_NOT_ALLOWED;
-        return res.end();
-    } else if (headers.authorization !== config.authorization) {
+    if (headers.authorization !== config.authorization) {
         res.statusCode = ResponseCodes.UNAUTHORIZED;
+        return res.end();
+    } else if (method?.toLowerCase() !== RequestMethods.POST) {
+        res.statusCode = ResponseCodes.METHOD_NOT_ALLOWED;
         return res.end();
     }
     const script = await parseBody(req);
-    let result: [Buffer | undefined, string | undefined] = [undefined, undefined];
+    let result: Output = {};
+    let wallTime: number = 0;
     try {
+        let start = Date.now();
         result = await executeImageScript(script);
+        wallTime = Date.now() - start;
     } catch(e) {
         res.statusCode = ResponseCodes.BAD_REQUEST;
         res.write(e.stack);
-        res.end();
+        return res.end();
     }
-    if(result[1]) {
-        res.setHeader('text', result[1]);
+    res.setHeader('cpu-time', result.cpuTime as number);
+    res.setHeader('wall-time', wallTime);
+    if(result.text) {
+        res.setHeader('text', result.text);
     }
-    if(result[0]) {
+    if(result.image) {
         res.statusCode = ResponseCodes.OK;
-        res.write(result[0]);
+        res.write(result.image);
         res.end();
     } else {
         res.statusCode = ResponseCodes.NO_CONTENT;
