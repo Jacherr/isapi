@@ -5,10 +5,23 @@ import { Image, Frame, GIF } from 'imagescript'
 
 import * as config from './config.json';
 
+type Serializable = string | number | boolean
+
+interface Input {
+    script: string
+    inject?: { [key: string]: Serializable }
+}
+
+enum Format {
+    PNG = 'png',
+    GIF = 'gif'
+}
+
 interface Output {
     image?: Buffer
     text?: string
     cpuTime?: number
+    format?: Format
 }
 
 enum RequestMethods {
@@ -23,15 +36,15 @@ enum ResponseCodes {
     METHOD_NOT_ALLOWED = 405
 }
 
-function parseBody(req: IncomingMessage): Promise<string> {
+function parseBody(req: IncomingMessage): Promise<Input> {
     return new Promise((resolve) => {
         let data = '';
         req.on('data', (chunk: string) => data += chunk);
-        req.on('end', () => resolve(data));
+        req.on('end', () => resolve(JSON.parse(data)));
     });
 }
 
-async function executeImageScript(script: string): Promise<Output> {
+async function executeImageScript(script: string, inject: { [key: string]: Serializable }): Promise<Output> {
     let result: [Image | GIF | undefined, string | undefined];
     const scriptToExecute = 
 `${script}
@@ -50,13 +63,15 @@ if(__typeofImage === 'undefined' && __typeofText === 'undefined') {
     result = runInNewContext(scriptToExecute, {
         Image,
         Frame,
-        GIF
+        GIF,
+        ...inject
     }, { timeout: config.timeout, });
 
     let output: Output = { 
         image: undefined, 
         text: undefined, 
-        cpuTime: Date.now() - start 
+        cpuTime: Date.now() - start,
+        format: result[0] ? result[0] instanceof Image ? Format.PNG : Format.GIF : undefined
     };
     if(result[0]) {
         const buffer = await result[0].encode();
@@ -76,22 +91,26 @@ createServer(async (req, res) => {
         res.statusCode = ResponseCodes.METHOD_NOT_ALLOWED;
         return res.end();
     }
-    const script = await parseBody(req);
+    const data = await parseBody(req);
+    const { script, inject } = data;
     let result: Output = {};
     let wallTime: number = 0;
     try {
         let start = Date.now();
-        result = await executeImageScript(script);
+        result = await executeImageScript(script, inject || {});
         wallTime = Date.now() - start;
     } catch(e) {
         res.statusCode = ResponseCodes.BAD_REQUEST;
         res.write(e.stack);
         return res.end();
     }
-    res.setHeader('cpu-time', result.cpuTime as number);
-    res.setHeader('wall-time', wallTime);
+    res.setHeader('x-cpu-time', result.cpuTime as number);
+    res.setHeader('x-wall-time', wallTime);
     if(result.text) {
-        res.setHeader('text', result.text);
+        res.setHeader('x-text', result.text);
+    }
+    if(result.format) {
+        res.setHeader('x-format', result.format);
     }
     if(result.image) {
         res.statusCode = ResponseCodes.OK;
