@@ -1,6 +1,6 @@
 {
   "dependencies": {
-    "imagescript": "github:Jacherr/ImageScript#22c93cf3fe2bfb43d7588dfed91f8e16f30fb5bd",
+    "imagescript": "github:Jacherr/imagescript#ebd0eaedbba110adcd6f17642c9dd11c4dc5f736",
     "simplex-noise": "^2.4.0"
   }
 }

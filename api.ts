@@ -48,20 +48,20 @@ function parseBody(req: IncomingMessage): Promise<Input> {
 }
 
 async function executeImageScript(script: string, inject: { [key: string]: Serializable }): Promise<Output> {
-    let result: [Image | GIF | undefined, string | undefined];
+    let text = '';
+    const _console = {
+        log: (...args: string[]) => text += args.join(' ') + '\n'
+    }
+
+    let result: Image | GIF | undefined;
     const scriptToExecute = 
 `(async() => {
     ${script}
     const __typeofImage = typeof(image);
-    const __typeofText = typeof(text);
-    if(__typeofImage === 'undefined' && __typeofText === 'undefined') {
-        throw new Error('no image or text was defined');
-    } else if(__typeofImage !== 'undefined' && __typeofText === 'undefined') {
-        return [image, undefined];
-    } else if(__typeofImage === 'undefined' && __typeofText !== 'undefined') {
-        return [undefined, text];
+    if(__typeofImage === 'undefined') {
+        return undefined;
     } else {
-        return [image, text];
+        return image;
     }
 })()`
     const start = Date.now();
@@ -72,26 +72,28 @@ async function executeImageScript(script: string, inject: { [key: string]: Seria
             GIF,
             SimplexNoise,
             _inspect: inspect,
+            console: _console,
             ...inject
         }, { timeout: config.timeout, });
     } catch(e) {
         throw e;
     }
 
-    if(result[0] instanceof Promise) await result[0];
-    if(!(result[0] instanceof Image) && result[0] !== undefined) throw new Error('`image` is not a valid Image')
+    if(result === undefined && text === '') throw new Error('no text or image was defined');
+    if(result instanceof Promise) await result;
+    if(!(result instanceof Image) && result !== undefined) throw new Error('`image` is not a valid Image');
 
     let output: Output = { 
         image: undefined, 
         text: undefined, 
         cpuTime: Date.now() - start,
-        format: result[0] ? result[0] instanceof Image ? Format.PNG : Format.GIF : undefined
+        format: result ? result instanceof Image ? Format.PNG : Format.GIF : undefined
     };
-    if(result[0]) {
-        const buffer = await result[0].encode();
+    if(result) {
+        const buffer = await result.encode();
         output.image = buffer;
     }
-    output.text = result[1];
+    output.text = text;
 
     return output;
 }
@@ -115,13 +117,14 @@ createServer(async (req, res) => {
         wallTime = Date.now() - start;
     } catch(e) {
         res.statusCode = ResponseCodes.BAD_REQUEST;
-        res.write(e.stack.split('\n').slice(0, 5).join('\n'));
+        res.write(String(e))
         return res.end();
     }
     res.setHeader('x-cpu-time', result.cpuTime as number);
     res.setHeader('x-wall-time', wallTime);
     if(result.text) {
-        res.setHeader('x-text', result.text.split('').map(a => a.charCodeAt(0)).join(' '));
+        const encodedHeader = String(result.text).split('').map(a => a.charCodeAt(0)).join(' ');
+        res.setHeader('x-text', encodedHeader);
     }
     if(result.format) {
         res.setHeader('x-format', result.format);
