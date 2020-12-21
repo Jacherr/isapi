@@ -79,7 +79,7 @@ async function executeImageScript(script: string, inject: { [key: string]: Seria
         throw e;
     }
 
-    if(result === undefined && text === '') throw new Error('no text or image was defined');
+    if(result === undefined && text.trim() === '') throw new Error('the script produced no output (define `image` or log something with `console.log()`)');
     if(result instanceof Promise) await result;
     if(!(result instanceof Image) && result !== undefined) throw new Error('`image` is not a valid Image');
 
@@ -124,7 +124,7 @@ createServer(async (req, res) => {
     res.setHeader('x-wall-time', wallTime);
     if(result.text) {
         const encodedHeader = String(result.text).split('').map(a => a.charCodeAt(0)).join(' ');
-        res.setHeader('x-text', encodedHeader);
+        res.setHeader('x-text', encodedHeader.slice(0, 7999));
     }
     if(result.format) {
         res.setHeader('x-format', result.format);
