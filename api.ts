@@ -85,6 +85,8 @@ async function executeImageScript(script: string, inject: { [key: string]: Seria
 
     text = text.slice(0, 5000);
 
+    console.log(text.length);
+
     let output: Output = { 
         image: undefined, 
         text,
