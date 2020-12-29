@@ -50,7 +50,7 @@ function parseBody(req: IncomingMessage): Promise<Input> {
 async function executeImageScript(script: string, inject: { [key: string]: Serializable }): Promise<Output> {
     let text = '';
     const _console = {
-        log: (...args: string[]) => text += args.join(' ') + '\n'
+        log: (arg: string) => text += String(arg) + '\n'
     }
 
     let result: Image | GIF | undefined;
@@ -79,13 +79,13 @@ async function executeImageScript(script: string, inject: { [key: string]: Seria
         throw e;
     }
 
-    if(result === undefined && text.trim() === '') throw new Error('the script produced no output (define `image` or log something with `console.log()`)');
+    if(result === undefined && (!text || text.trim() === '')) throw new Error('the script produced no output (define `image` or log something with `console.log()`)');
     if(result instanceof Promise) await result;
     if(!(result instanceof Image) && result !== undefined) throw new Error('`image` is not a valid Image');
 
     let output: Output = { 
         image: undefined, 
-        text: undefined, 
+        text,
         cpuTime: Date.now() - start,
         format: result ? result instanceof Image ? Format.PNG : Format.GIF : undefined
     };
@@ -93,7 +93,6 @@ async function executeImageScript(script: string, inject: { [key: string]: Seria
         const buffer = await result.encode();
         output.image = buffer;
     }
-    output.text = text;
 
     return output;
 }
