@@ -83,6 +83,8 @@ async function executeImageScript(script: string, inject: { [key: string]: Seria
     if(result instanceof Promise) await result;
     if(!(result instanceof Image) && result !== undefined) throw new Error('`image` is not a valid Image');
 
+    text = text.slice(0, 5000);
+
     let output: Output = { 
         image: undefined, 
         text,
